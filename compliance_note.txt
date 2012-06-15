@@ -1,3 +1,7 @@
+NOTE: support for Go r60.3 is frozen as is.  All further work will
+be in the weekly branch which will migrate to master when Go 1 is 
+released.
+
 Redis: 
 	2.4.9
 
