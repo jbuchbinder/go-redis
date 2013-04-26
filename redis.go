@@ -94,16 +94,7 @@ package redis
 
 import (
 	"flag"
-	"runtime";
 )
-
-// Common interface supported by all clients
-// to consolidate common ops
-type RedisClient interface {
-
-	// Redis QUIT command.
-	Quit() (err Error)
-}
 
 // The synchronous call semantics Client interface.
 //
@@ -122,9 +113,8 @@ type RedisClient interface {
 // See Error in this package for details of its interface.
 type Client interface {
 
-	// psuedo inheritance to coerce to RedisClient type
-	// for the common API (not "algorithm", not "data", but interface ...)
-	RedisClient() RedisClient
+	// Redis QUIT command.
+	Quit() (err Error)
 
 	// Redis GET command.
 	Get(key string) (result []byte, err Error)
@@ -148,16 +138,13 @@ type Client interface {
 	Exists(key string) (result bool, err Error)
 
 	// Redis RENAME command.
-	Rename(key string, arg1 string) Error
+	Rename(key, arg1 string) Error
 
 	// Redis INFO command.
 	Info() (result map[string]string, err Error)
 
 	// Redis PING command.
 	Ping() Error
-
-	// Redis QUIT command.
-	Quit() Error
 
 	// Redis SETNX command.
 	Setnx(key string, arg1 []byte) (result bool, err Error)
@@ -323,6 +310,13 @@ type Client interface {
 
 	// Redis LASTSAVE command.
 	Lastsave() (result int64, err Error)
+
+	// Redis PUBLISH command.
+	// Publishes a message to the named channels.  This is a blocking call.
+	//
+	// Returns the number of PubSub subscribers that received the message.
+	// OR error if any.
+	Publish(channel string, message []byte) (recieverCout int64, err Error)
 }
 
 // The asynchronous client interface provides asynchronous call semantics with
@@ -340,9 +334,8 @@ type Client interface {
 // the server, or, Go-Redis (system) errors encountered in processing the response.
 type AsyncClient interface {
 
-	// psuedo inheritance to coerce to RedisClient type
-	// for the common API (not "algorithm", not "data", but interface ...)
-	RedisClient() RedisClient
+	// Redis QUIT command.
+	Quit() (status FutureBool, err Error)
 
 	// Redis GET command.
 	Get(key string) (result FutureBytes, err Error)
@@ -366,16 +359,13 @@ type AsyncClient interface {
 	Exists(key string) (result FutureBool, err Error)
 
 	// Redis RENAME command.
-	Rename(key string, arg1 string) (status FutureBool, err Error)
+	Rename(key, arg1 string) (status FutureBool, err Error)
 
 	// Redis INFO command.
 	Info() (result FutureInfo, err Error)
 
 	// Redis PING command.
 	Ping() (status FutureBool, err Error)
-
-	// Redis QUIT command.
-	Quit() (err Error)
 
 	// Redis SETNX command.
 	Setnx(key string, arg1 []byte) (result FutureBool, err Error)
@@ -523,7 +513,110 @@ type AsyncClient interface {
 
 	// Redis LASTSAVE command.
 	Lastsave() (result FutureInt64, err Error)
+
+	// Redis PUBLISH command.
+	// Publishes a message to the named channels.
+	//
+	// Returns the future for number of PubSub subscribers that received the message.
+	// OR error if any.
+	Publish(channel string, message []byte) (recieverCountFuture FutureInt64, err Error)
 }
+
+// REVU - ALL THE COMMENS NEEDS REVIEW AND REVISION
+// Most critical is the depth of channel for message publication
+// Demux is problematic on many levels.  Simply provide an example
+// such as
+/*
+	demux := make(PubSubChannel, depth)
+
+	__, __, serr :=  pubsub.Subscribe(subid); if serr != nil {
+	 // handle error
+	}
+	schan := pubsub.Mesages(subid)
+
+	go func() {
+       select
+	}()
+
+*/
+
+// PubSub Client
+//
+// Strictly speaking, this client can only subscribe, receive messages, and
+// unsubscribe.  Publishing to Redis PubSub channels is done via the standard
+// clients (either sync or async); see the Publish() method on Client and AsyncClient.
+//
+// Once created, the PubSub client has a message channel (of type <-chan []byte)
+// that the end-user can select, dequeue, etc.
+//
+// This client (very) slightly
+// modifies the native pubsub client's semantics in that it does NOT post the
+// 'subscribe' or 'unsubscribe' ACKs of Redis server on the exposed chan.  These
+// ACKs are effectively captured and returned via the returned results of the
+// PubSubClient's Subscribe() and Unsubscribe() methods, respectively.
+//
+// The subscribe and unsubscribe methods are both blocking (synchronous).  The
+// messages published via the incoming chan are naturally asynchronous.
+//
+// Given the fact that Redis PSUBSCRIBE to channel names that do NOT end in *
+// is identical to SUBSCRIBE to the same, PubSubClient only exposes Subscribe and
+// Unsubscribe methods and supporting implementation are expected to always use
+// the Redis PSUBSCRIBE and PUNSUBSCRIBE commands.  For example, if one issues
+// PSUBSCRIBE foo/* (via telnet) to Redis, and then UNSUBSCRIBE or PUNSUBSCRIBE foo/bar,
+// messages published to foo/bar will still be received in the (telnet) client.  So
+// given that Redis does NOT filter subscriptions and it merely has a 1-1 mapping
+// to subscribed and unsubscribed patterns, PSUBSCRIBE foo is equivalent to SUBSCRIBE foo.
+// These facts inform the design decision to keep the API of PubSubClient simple and
+// not expose explicit pattern or explicit (un)subscription.
+//
+// Also note that (per Redis semantics) ALL subscribed channels will publish to the
+// single chan exposed by this client.  For practical applications, you will minimally
+// want to use one PubSubClient per PubSub channel priority category.  For example,
+// if your system has general priority application level and high priority critical system
+// level PubSub channels, you should at least create 2 clients, one per priority category.
+//
+// Like all Go-Redis clients, you can (and should) Quit() once you are done with
+// the client.
+//
+type PubSubClient interface {
+
+	// returns the incoming messages channel for this client, or nil
+	// if no such subscription is active.
+	// In event of Unsubscribing from a Redis channel, the
+	// client will close this channel.
+	Messages(topic string) PubSubChannel
+
+	// return the subscribed channel ids, whether specificly named, or
+	// pattern based.
+	Subscriptions() []string
+
+	// Redis PSUBSCRIBE command.
+	// Subscribes to one or more pubsub channels.
+	// This is a blocking call.
+	// Channel names can be explicit or pattern based (ending in '*')
+	//
+	// Returns the number of currently subscribed channels OR error (if any)
+	//	Subscribe(channel string, otherChannels ...string) (messages PubSubChannel, subscriptionCount int, err Error)
+	Subscribe(topic string, otherTopics ...string) (err Error)
+
+	// Redis PUNSUBSCRIBE command.
+	// unsubscribe from 1 or more pubsub channels.  If arg is nil,
+	// client unsubcribes from ALL subscribed channels.
+	// This is a blocking call.
+	// Channel names can be explicit or pattern based (ending in '*')
+	//
+	// Returns the number of currently subscribed channels OR error (if any)
+	Unsubscribe(channels ...string) (err Error)
+
+	// Quit closes the client and client reference can be disposed.
+	// This is a blocking call.
+	// Returns error, if any, e.g. network issues.
+	Quit() Error
+}
+
+// PubSubChannels are used by clients to forward received PubSub messages from Redis
+// See PubSubClient interface for details.
+type PubSubChannel <-chan []byte
 
 // ----------------------------------------------------------------------------
 // package initiatization and internal ops and flags
@@ -535,10 +628,11 @@ type AsyncClient interface {
 // go-redis will make use of command line flags where available.  flag names
 // for this package are all prefixed by "redis:" to prevent possible name collisions.
 //
-func init() {
-		runtime.GOMAXPROCS(2);
-		flag.Parse();
-}
+// Note that because flag.Parse() can only be called once, add all flags must have
+// been defined by the time it is called, we CAN NOT call flag.Parse() in our init()
+// function, as that will prevent any invokers from defining their own flags.
+//
+// It is your responsibility to call flag.Parse() at the start of your main().
 
 // redis:d
 //

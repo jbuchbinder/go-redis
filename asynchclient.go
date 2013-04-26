@@ -33,43 +33,38 @@ type asyncClient struct {
 //
 func NewAsynchClient() (c AsyncClient, err Error) {
 	spec := DefaultSpec()
-	c, err = NewAsynchClientWithSpec(spec)
-	return
+	return NewAsynchClientWithSpec(spec)
 }
 
 // Create a new asynClient and connects to the Redis server using the
 // specified ConnectionSpec.
 //
-func NewAsynchClientWithSpec(spec *ConnectionSpec) (c AsyncClient, err Error) {
-	_c := new(asyncClient)
-	_c.conn, err = NewAsynchConnection(spec)
+func NewAsynchClientWithSpec(spec *ConnectionSpec) (client AsyncClient, err Error) {
+	c := new(asyncClient)
+	c.conn, err = NewAsynchConnection(spec)
 	if err != nil {
 		if debug() {
 			log.Println("NewAsyncConnection() raised error: ", err)
 		}
 		return nil, err
 	}
-	return _c, nil
-}
-
-// -----------------------------------------------------------------------------
-// interface redis.RedisClient support
-// -----------------------------------------------------------------------------
-
-// Redis QUIT command.
-func (c *asyncClient) Quit() (err Error) {
-	log.Println("<BUG> Lazy programmer hasn't implemented Quit!")
-	return NewError(SYSTEM_ERR, "<BUG> Lazy programmer hasn't implemented Quit!")
+	return c, nil
 }
 
 // -----------------------------------------------------------------------------
 // interface redis.AsyncClient support
 // -----------------------------------------------------------------------------
 
-// Coerce to RedisClient type
-func (c *asyncClient) RedisClient() RedisClient {
-	var rc interface{} = c
-	return rc.(RedisClient)
+// Redis QUIT command.
+func (c *asyncClient) Quit() (stat FutureBool, err Error) {
+	//	log.Println("<BUG> Lazy programmer hasn't implemented Quit!")
+	//	return nil, NewError(SYSTEM_ERR, "<BUG> Lazy programmer hasn't implemented Quit!")
+	resp, err := c.conn.QueueRequest(&QUIT, [][]byte{})
+	if err == nil {
+		stat = resp.future.(FutureBool)
+	}
+
+	return
 }
 
 // Redis GET command.
@@ -195,16 +190,6 @@ func (c *asyncClient) Ping() (stat FutureBool, err Error) {
 	return
 }
 
-//// Redis QUIT command.
-////func (c *asyncClient) Quit () (stat FutureBool, err Error){
-//func (c *asyncClient) Quit () (err Error){
-////	c.conn.Close();
-//////	resp, err = c.conn.QueueRequest(&QUIT);
-////	if err == nil {stat = resp.future.(FutureBool);}
-//    log.Println("<BUG> Lazy programmer hasn't implemented Quit!")
-//	return NewError(SYSTEM_ERR, "<BUG> Lazy programmer hasn't implemented Quit!")
-//}
-
 // Redis SETNX command.
 func (c *asyncClient) Setnx(arg0 string, arg1 []byte) (result FutureBool, err Error) {
 	arg0bytes := []byte(arg0)
@@ -234,11 +219,13 @@ func (c *asyncClient) Getset(arg0 string, arg1 []byte) (result FutureBytes, err 
 
 // Redis MGET command.
 func (c *asyncClient) Mget(arg0 string, arg1 []string) (result FutureBytesArray, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
 	var resp *PendingResponse
-	resp, err = c.conn.QueueRequest(&MGET, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err = c.conn.QueueRequest(&MGET, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.QueueRequest(&MGET, args)
 	if err == nil {
 		result = resp.future.(FutureBytesArray)
 	}
@@ -318,7 +305,7 @@ func (c *asyncClient) Randomkey() (result FutureString, err Error) {
 	var resp *PendingResponse
 	resp, err = c.conn.QueueRequest(&RANDOMKEY, [][]byte{})
 	if err == nil {
-		result = resp.future.(FutureString)
+		result = resp.future.(FutureString) // REVU - this is broken
 	}
 	return result, err
 
@@ -642,11 +629,12 @@ func (c *asyncClient) Scard(arg0 string) (result FutureInt64, err Error) {
 
 // Redis SINTER command.
 func (c *asyncClient) Sinter(arg0 string, arg1 []string) (result FutureBytesArray, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 	var resp *PendingResponse
-	resp, err = c.conn.QueueRequest(&SINTER, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err = c.conn.QueueRequest(&SINTER, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.QueueRequest(&SINTER, args)
 	if err == nil {
 		result = resp.future.(FutureBytesArray)
 	}
@@ -656,10 +644,12 @@ func (c *asyncClient) Sinter(arg0 string, arg1 []string) (result FutureBytesArra
 
 // Redis SINTERSTORE command.
 func (c *asyncClient) Sinterstore(arg0 string, arg1 []string) (stat FutureBool, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
-	resp, err := c.conn.QueueRequest(&SINTERSTORE, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err := c.conn.QueueRequest(&SINTERSTORE, [][]byte{arg0bytes, arg1bytes})
+	resp, err := c.conn.QueueRequest(&SINTERSTORE, args)
 	if err == nil {
 		stat = resp.future.(FutureBool)
 	}
@@ -669,11 +659,13 @@ func (c *asyncClient) Sinterstore(arg0 string, arg1 []string) (stat FutureBool, 
 
 // Redis SUNION command.
 func (c *asyncClient) Sunion(arg0 string, arg1 []string) (result FutureBytesArray, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
 	var resp *PendingResponse
-	resp, err = c.conn.QueueRequest(&SUNION, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err = c.conn.QueueRequest(&SUNION, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.QueueRequest(&SUNION, args)
 	if err == nil {
 		result = resp.future.(FutureBytesArray)
 	}
@@ -683,10 +675,12 @@ func (c *asyncClient) Sunion(arg0 string, arg1 []string) (result FutureBytesArra
 
 // Redis SUNIONSTORE command.
 func (c *asyncClient) Sunionstore(arg0 string, arg1 []string) (stat FutureBool, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
-	resp, err := c.conn.QueueRequest(&SUNIONSTORE, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err := c.conn.QueueRequest(&SUNIONSTORE, [][]byte{arg0bytes, arg1bytes})
+	resp, err := c.conn.QueueRequest(&SUNIONSTORE, args)
 	if err == nil {
 		stat = resp.future.(FutureBool)
 	}
@@ -696,11 +690,13 @@ func (c *asyncClient) Sunionstore(arg0 string, arg1 []string) (stat FutureBool, 
 
 // Redis SDIFF command.
 func (c *asyncClient) Sdiff(arg0 string, arg1 []string) (result FutureBytesArray, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
 	var resp *PendingResponse
-	resp, err = c.conn.QueueRequest(&SDIFF, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err = c.conn.QueueRequest(&SDIFF, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.QueueRequest(&SDIFF, args)
 	if err == nil {
 		result = resp.future.(FutureBytesArray)
 	}
@@ -710,10 +706,12 @@ func (c *asyncClient) Sdiff(arg0 string, arg1 []string) (result FutureBytesArray
 
 // Redis SDIFFSTORE command.
 func (c *asyncClient) Sdiffstore(arg0 string, arg1 []string) (stat FutureBool, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
+	//	arg0bytes := []byte(arg0)
+	//	arg1bytes := concatAndGetBytes(arg1, " ")
+	args := appendAndConvert(arg0, arg1...)
 
-	resp, err := c.conn.QueueRequest(&SDIFFSTORE, [][]byte{arg0bytes, arg1bytes})
+	//	resp, err := c.conn.QueueRequest(&SDIFFSTORE, [][]byte{arg0bytes, arg1bytes})
+	resp, err := c.conn.QueueRequest(&SDIFFSTORE, args)
 	if err == nil {
 		stat = resp.future.(FutureBool)
 	}
@@ -942,4 +940,16 @@ func (c *asyncClient) Lastsave() (result FutureInt64, err Error) {
 	}
 	return result, err
 
+}
+
+func (c *asyncClient) Publish(arg0 string, arg1 []byte) (result FutureInt64, err Error) {
+	arg0bytes := []byte(arg0)
+	arg1bytes := arg1
+
+	var resp *PendingResponse
+	resp, err = c.conn.QueueRequest(&PUBLISH, [][]byte{arg0bytes, arg1bytes})
+	if err == nil {
+		result = resp.future.(FutureInt64)
+	}
+	return result, err
 }

@@ -15,6 +15,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -39,6 +40,8 @@ const (
 // a list of canonical Redis methods obtained from a
 // spec file and reports the missing methods
 func main() {
+	flag.Parse()
+
 	specfname, e := getSpecFileName("compliance.prop")
 	if e != nil {
 		log.Println("error -", e)
@@ -133,7 +136,7 @@ func getDefinedMethods(ctype clientType) (map[string]string, *error_) {
 	if client == nil {
 		return mmap, &error_{"client is nil", nil}
 	} else {
-		defer client.(redis.RedisClient).Quit()
+		defer client.Quit()
 	}
 
 	tc := reflect.TypeOf(client)

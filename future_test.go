@@ -1,3 +1,5 @@
+// REVU - whitebox testing of internal comps -- OK.
+
 package redis
 
 import (
@@ -161,5 +163,5 @@ func TestFutureTimedBlockingGet(t *testing.T) {
 
 func TestEnd_future(t *testing.T) {
 	// nop
-	log.Println("future test")
+	log.Println("-- future test completed")
 }

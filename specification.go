@@ -14,6 +14,8 @@
 
 package redis
 
+//import "fmt"
+
 // ----------------------------------------------------------------------------
 // PROTOCOL SPEC
 //
@@ -54,6 +56,8 @@ func GetKeyType(typename string) (keytype KeyType) {
 		keytype = RT_SET
 	case typename == "zset":
 		keytype = RT_ZSET
+	default:
+		panic("BUG - unknown type: " + string(keytype))
 	}
 	return
 }
@@ -97,7 +101,7 @@ const (
 	VIRTUAL ResponseType = iota
 	BOOLEAN
 	NUMBER
-	STRING
+	STRING // REVU - rename to TYPE
 	STATUS
 	BULK
 	MULTI_BULK
@@ -130,7 +134,7 @@ var (
 	DEL           Command = Command{"DEL", KEY, BOOLEAN}
 	TYPE          Command = Command{"TYPE", KEY, STRING}
 	KEYS          Command = Command{"KEYS", KEY, MULTI_BULK}
-	RANDOMKEY     Command = Command{"RANDOMKEY", NO_ARG, STRING}
+	RANDOMKEY     Command = Command{"RANDOMKEY", NO_ARG, BULK}
 	RENAME        Command = Command{"RENAME", KEY_KEY, STATUS}
 	RENAMENX      Command = Command{"RENAMENX", KEY_KEY, BOOLEAN}
 	DBSIZE        Command = Command{"DBSIZE", NO_ARG, NUMBER}
@@ -177,12 +181,116 @@ var (
 	FLUSHDB       Command = Command{"FLUSHDB", NO_ARG, STATUS}
 	FLUSHALL      Command = Command{"FLUSHALL", NO_ARG, STATUS}
 	MOVE          Command = Command{"MOVE", KEY_NUM, BOOLEAN}
-	// TODO	SORT		(RequestType.MULTI_KEY,		ResponseType.MULTI_BULK), 
-	SORT     Command = Command{"SORT", KEY_SPEC, MULTI_BULK}
-	SAVE     Command = Command{"SAVE", NO_ARG, STATUS}
-	BGSAVE   Command = Command{"BGSAVE", NO_ARG, STATUS}
-	LASTSAVE Command = Command{"LASTSAVE", NO_ARG, NUMBER}
-	SHUTDOWN Command = Command{"SHUTDOWN", NO_ARG, VIRTUAL}
-	INFO     Command = Command{"INFO", NO_ARG, BULK}
-	MONITOR  Command = Command{"MONITOR", NO_ARG, VIRTUAL}
+	SORT          Command = Command{"SORT", KEY_SPEC, MULTI_BULK}
+	SAVE          Command = Command{"SAVE", NO_ARG, STATUS}
+	BGSAVE        Command = Command{"BGSAVE", NO_ARG, STATUS}
+	LASTSAVE      Command = Command{"LASTSAVE", NO_ARG, NUMBER}
+	SHUTDOWN      Command = Command{"SHUTDOWN", NO_ARG, VIRTUAL}
+	INFO          Command = Command{"INFO", NO_ARG, BULK}
+	MONITOR       Command = Command{"MONITOR", NO_ARG, VIRTUAL}
+	// TODO	SORT		(RequestType.MULTI_KEY,		ResponseType.MULTI_BULK),
+	PUBLISH      Command = Command{"PUBLISH", KEY_VALUE, NUMBER}
+	SUBSCRIBE    Command = Command{"SUBSCRIBE", MULTI_KEY, MULTI_BULK}
+	UNSUBSCRIBE  Command = Command{"UNSUBSCRIBE", MULTI_KEY, MULTI_BULK}
+	PSUBSCRIBE   Command = Command{"PSUBSCRIBE", MULTI_KEY, MULTI_BULK}
+	PUNSUBSCRIBE Command = Command{"PUNSUBSCRIBE", MULTI_KEY, MULTI_BULK}
 )
+
+// ----------------------------------------------------------------------
+// BlackBox testing contract (WIP)
+// ----------------------------------------------------------------------
+
+// For use by the generated tests.
+type MethodSpec struct {
+	NoPanics         bool
+	NoRedisErr       bool
+	NoNilResultValue bool
+	NoNilFuture      bool
+}
+
+// For use by the generated tests.
+//
+// Get MethodSpec for the given client type (name) and Method.
+//
+func GetMethodSpec(client, method string) (spec *MethodSpec) {
+
+	// Default spec for all clients and methods
+	//
+	//   - Never panic
+	//   - Never return redisError
+	//   - Never return nil/zerovalue for any non-error result
+
+	defspec := &MethodSpec{
+		NoPanics:         true,
+		NoRedisErr:       true,
+		NoNilResultValue: true,
+		NoNilFuture:      true,
+	}
+
+	// Allow client specific mods to the default spec, as required.
+	//
+	switch client {
+	case "Client":
+		spec = syncClientMethodSpec(defspec, method)
+	case "AsyncClient":
+		spec = asyncClientMethodSpec(defspec, method)
+	case "PubSubClient":
+		spec = pubsubClientMethodSpec(defspec, method)
+	}
+
+	return
+}
+
+// spec.NoRedisErr
+// Specs MethodSpec.NoRedisErr - client type invariant
+func anyClientRedisErrSpec(spec *MethodSpec, method string) *MethodSpec {
+	// Commands that can return ERR given random input and state
+	switch method {
+	// Redis-Spec: Background save may be running already and can raise -ERR
+	case "Bgsave":
+		spec.NoRedisErr = false
+	}
+
+	return spec
+}
+
+// spec.NoNilResultValue
+// Specs MethodSpec.NoNilResultValue - client type invariant
+func anyClientNilResultValueSpec(spec *MethodSpec, method string) *MethodSpec {
+	// Commands that can return nil/zero-value given random input and state
+	switch method {
+	// Redis-Spec: DB may be empty and AllKeys can return nil result
+	// REVU: check if this is actually conformant
+	case "AllKeys":
+		spec.NoNilResultValue = false
+	}
+
+	return spec
+}
+
+func syncClientMethodSpec(defspec *MethodSpec, method string) (spec *MethodSpec) {
+	spec = defspec
+
+	// spec.NoRedisErr
+	spec = anyClientRedisErrSpec(spec, method)
+	spec = anyClientNilResultValueSpec(spec, method)
+
+	return
+}
+
+func asyncClientMethodSpec(defspec *MethodSpec, method string) (spec *MethodSpec) {
+	spec = defspec
+
+	// spec.NoRedisErr
+	spec = anyClientRedisErrSpec(spec, method)
+	spec = anyClientNilResultValueSpec(spec, method)
+
+	return
+}
+
+func pubsubClientMethodSpec(defspec *MethodSpec, method string) (spec *MethodSpec) {
+	spec = defspec
+	switch method {
+	}
+	return
+}

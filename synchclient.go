@@ -41,7 +41,7 @@ func NewSynchClient() (c Client, err Error) {
 	}
 	if c == nil {
 		log.Println("NewSynchClientWithSpec returned nil Client.")
-		err = NewError(SYSTEM_ERR, "NewSynchClientWithSpec returned nil Client")
+		err = newSystemError("NewSynchClientWithSpec returned nil Client")
 	}
 	return
 }
@@ -53,31 +53,20 @@ func NewSynchClientWithSpec(spec *ConnectionSpec) (c Client, err Error) {
 	_c := new(syncClient)
 	_c.conn, err = NewSyncConnection(spec)
 	if err != nil {
-		return nil, withError (err)
+		return nil, withError(err)
 	}
-//	_c.conn = conn
+	//	_c.conn = conn
 	return _c, nil
-}
-
-// -----------------------------------------------------------------------------
-// interface redis.RedisClient support
-// -----------------------------------------------------------------------------
-
-// Redis QUIT command.
-func (c *syncClient) Quit() (err Error) {
-	c.conn.Close()
-	//	_, err = c.conn.ServiceRequest(&QUIT);
-	return
 }
 
 // -----------------------------------------------------------------------------
 // interface redis.Client support
 // -----------------------------------------------------------------------------
 
-// Coerce to RedisClient type
-func (c *syncClient) RedisClient() RedisClient {
-	var rc interface{} = c
-	return rc.(RedisClient)
+// Redis QUIT command.
+func (c *syncClient) Quit() (err Error) {
+	_, err = c.conn.ServiceRequest(&QUIT, [][]byte{})
+	return
 }
 
 // Redis GET command.
@@ -214,21 +203,14 @@ func parseInfo(buff []byte) map[string]string {
 func (c *syncClient) Ping() (err Error) {
 	if c == nil {
 		log.Println("FAULT in synchclient.Ping(): why is c nil?")
-		return NewError(SYSTEM_ERR, "c *syncClient is NIL!")
+		return newSystemError("c *syncClient is NIL!")
 	} else if c.conn == nil {
 		log.Println("FAULT in synchclient.Ping(): why is c.conn nil?")
-		return NewError(SYSTEM_ERR, "c.conn *SynchConnection is NIL!")
+		return newSystemError("c.conn *SynchConnection is NIL!")
 	}
 	_, err = c.conn.ServiceRequest(&PING, [][]byte{})
 	return
 }
-
-//// Redis QUIT command.
-//func (c *syncClient) Quit() (err Error) {
-//	c.conn.Close()
-//	//	_, err = c.conn.ServiceRequest(&QUIT);
-//	return
-//}
 
 // Redis SETNX command.
 func (c *syncClient) Setnx(arg0 string, arg1 []byte) (result bool, err Error) {
@@ -260,16 +242,13 @@ func (c *syncClient) Getset(arg0 string, arg1 []byte) (result []byte, err Error)
 
 // Redis MGET command.
 func (c *syncClient) Mget(arg0 string, arg1 []string) (result [][]byte, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
+	args := appendAndConvert(arg0, arg1...)
 	var resp Response
-	resp, err = c.conn.ServiceRequest(&MGET, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.ServiceRequest(&MGET, args)
 	if err == nil {
 		result = resp.GetMultiBulkData()
 	}
 	return result, err
-
 }
 
 // Redis INCR command.
@@ -344,7 +323,7 @@ func (c *syncClient) Randomkey() (result string, err Error) {
 	var resp Response
 	resp, err = c.conn.ServiceRequest(&RANDOMKEY, [][]byte{})
 	if err == nil {
-		result = resp.GetStringValue()
+		result = string(resp.GetBulkData())
 	}
 	return result, err
 
@@ -650,6 +629,8 @@ func (c *syncClient) Scard(arg0 string) (result int64, err Error) {
 
 }
 
+// REVU - this is buggy in conjunction with callsite usage (when arr is nil)
+// deprecated - TODO convert asynchclient.go to use appendAndConvert
 func concatAndGetBytes(arr []string, delim string) []byte {
 	cstr := ""
 	for _, s := range arr {
@@ -659,13 +640,28 @@ func concatAndGetBytes(arr []string, delim string) []byte {
 	return []byte(cstr)
 }
 
+// REVU - use this instead of concatAndGetBytes TODO - for asynch
+func appendAndConvert(a0 string, arr ...string) [][]byte {
+	sarr := make([][]byte, 1+len(arr))
+	sarr[0] = []byte(a0)
+	for i, v := range arr {
+		sarr[i+1] = []byte(v)
+	}
+	return sarr
+}
+func packArrays(a0 []byte, arr ...[]byte) [][]byte {
+	sarr := make([][]byte, 1+len(arr))
+	sarr[0] = a0
+	for i, v := range arr {
+		sarr[i+1] = v
+	}
+	return sarr
+}
+
 // Redis SINTER command.
 func (c *syncClient) Sinter(arg0 string, arg1 []string) (result [][]byte, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
 	var resp Response
-	resp, err = c.conn.ServiceRequest(&SINTER, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.ServiceRequest(&SINTER, appendAndConvert(arg0, arg1...))
 	if err == nil {
 		result = resp.GetMultiBulkData()
 	}
@@ -675,20 +671,15 @@ func (c *syncClient) Sinter(arg0 string, arg1 []string) (result [][]byte, err Er
 
 // Redis SINTERSTORE command.
 func (c *syncClient) Sinterstore(arg0 string, arg1 []string) (err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
-	_, err = c.conn.ServiceRequest(&SINTERSTORE, [][]byte{arg0bytes, arg1bytes})
+	_, err = c.conn.ServiceRequest(&SINTERSTORE, appendAndConvert(arg0, arg1...))
 	return
 }
 
 // Redis SUNION command.
 func (c *syncClient) Sunion(arg0 string, arg1 []string) (result [][]byte, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
 	var resp Response
-	resp, err = c.conn.ServiceRequest(&SUNION, [][]byte{arg0bytes, arg1bytes})
+	//		resp, err = c.conn.ServiceRequest(&SUNION, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.ServiceRequest(&SUNION, appendAndConvert(arg0, arg1...))
 	if err == nil {
 		result = resp.GetMultiBulkData()
 	}
@@ -698,20 +689,14 @@ func (c *syncClient) Sunion(arg0 string, arg1 []string) (result [][]byte, err Er
 
 // Redis SUNIONSTORE command.
 func (c *syncClient) Sunionstore(arg0 string, arg1 []string) (err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
-	_, err = c.conn.ServiceRequest(&SUNIONSTORE, [][]byte{arg0bytes, arg1bytes})
+	_, err = c.conn.ServiceRequest(&SUNIONSTORE, appendAndConvert(arg0, arg1...))
 	return
 }
 
 // Redis SDIFF command.
 func (c *syncClient) Sdiff(arg0 string, arg1 []string) (result [][]byte, err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
 	var resp Response
-	resp, err = c.conn.ServiceRequest(&SDIFF, [][]byte{arg0bytes, arg1bytes})
+	resp, err = c.conn.ServiceRequest(&SDIFF, appendAndConvert(arg0, arg1...))
 	if err == nil {
 		result = resp.GetMultiBulkData()
 	}
@@ -721,10 +706,7 @@ func (c *syncClient) Sdiff(arg0 string, arg1 []string) (result [][]byte, err Err
 
 // Redis SDIFFSTORE command.
 func (c *syncClient) Sdiffstore(arg0 string, arg1 []string) (err Error) {
-	arg0bytes := []byte(arg0)
-	arg1bytes := concatAndGetBytes(arg1, " ")
-
-	_, err = c.conn.ServiceRequest(&SDIFFSTORE, [][]byte{arg0bytes, arg1bytes})
+	_, err = c.conn.ServiceRequest(&SDIFFSTORE, appendAndConvert(arg0, arg1...))
 	return
 }
 
@@ -807,7 +789,7 @@ func (c *syncClient) Zscore(arg0 string, arg1 []byte) (result float64, err Error
 		buff := resp.GetBulkData()
 		//		fnum, oserr := strconv.Atof64(bytes.NewBuffer(buff).String());
 		//		if oserr != nil {
-		//			err = NewErrorWithCause(SYSTEM_ERR, "Expected a parsable byte representation of a float64 in Zscore!", oserr);
+		//			err = newSystemErrorWithCause("Expected a parsable byte representation of a float64 in Zscore!", oserr);
 		//		}
 		//		result = fnum;
 		result, err = Btof64(buff)
@@ -819,7 +801,7 @@ func (c *syncClient) Zscore(arg0 string, arg1 []byte) (result float64, err Error
 func Btof64(buff []byte) (num float64, e Error) {
 	num, ce := strconv.ParseFloat(bytes.NewBuffer(buff).String(), 64)
 	if ce != nil {
-		e = NewErrorWithCause(SYSTEM_ERR, "Expected a parsable byte representation of a float64", ce)
+		e = newSystemErrorWithCause("Expected a parsable byte representation of a float64", ce)
 	}
 	return
 }
@@ -947,4 +929,17 @@ func (c *syncClient) Lastsave() (result int64, err Error) {
 	}
 	return result, err
 
+}
+
+// Redis PUBLISH command.
+func (c *syncClient) Publish(arg0 string, arg1 []byte) (rcvCnt int64, err Error) {
+	arg0bytes := []byte(arg0)
+	arg1bytes := arg1
+
+	var resp Response
+	resp, err = c.conn.ServiceRequest(&PUBLISH, [][]byte{arg0bytes, arg1bytes})
+	if err == nil {
+		rcvCnt = resp.GetNumberValue()
+	}
+	return rcvCnt, err
 }
